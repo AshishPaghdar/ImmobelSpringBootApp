@@ -1,13 +1,15 @@
 package com.immobel.controller;
 
 import com.immobel.entity.Referral;
+import com.immobel.exception.ErrorResponse;
 import com.immobel.service.ReferralService;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
-import org.apache.solr.common.util.SimpleOrderedMap;
+import org.apache.solr.common.SolrException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,7 +43,7 @@ public class ReferralController {
     }
 
     @GetMapping("/solr/{id}")
-    public ResponseEntity<List<SolrDocument>> getReferralFromSolr(@PathVariable String id) {
+    public ResponseEntity<?> getReferralFromSolr(@PathVariable String id) {
         try {
             // Construct the Solr query
             SolrQuery query = new SolrQuery("recordType:referral-analytics AND referral_id:" + id);
@@ -49,26 +52,23 @@ public class ReferralController {
             // Execute the query and get the response
             QueryResponse response = solrClient.query(query);
 
-            // Extract results (assuming response is a SimpleOrderedMap)
-            List<SolrDocument> docs = new ArrayList<>();
-            if (response.getResponse() instanceof SimpleOrderedMap) {
-                SimpleOrderedMap<Object> responseMap = (SimpleOrderedMap<Object>) response.getResponse();
-                SolrDocumentList responseDocs = (SolrDocumentList) response.getResponse().get("response");
+            // Extract results
+            SolrDocumentList docs = response.getResults();
 
-                for (SolrDocument doc : responseDocs) {
-                    docs.add(doc);
-                }
-            }
-
-            // Handle empty results gracefully (optional for clarity)
+            // If no documents found, return a user-friendly error response
             if (docs.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Referral not found for ID: " + id));
             }
 
-            return ResponseEntity.ok(docs);
-        } catch (Exception e) {
+            // Return the documents
+            List<SolrDocument> documents = new ArrayList<>(docs);
+            return ResponseEntity.ok(documents);
+        } catch (SolrException e) {
             // Log the exception with a more informative message
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        } catch (SolrServerException | IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
